@@ -294,6 +294,35 @@ def process(df_ena, df_carl):
     logger.info(f"{len(mandatory_ena_fields_set) - len(mandatory_ena_fields_set - ena_ena_field_set)}/{len(mandatory_ena_fields_set)} mandatory fields in ENA, remaining: {sorted(mandatory_ena_fields_set - ena_ena_field_set)}")
 
 
+def write_draft_checklists(df_ena, path):
+    """Write the draft checklist to a CSV file."""
+    logger.info(f"write_draft_checklists(): writing draft checklist to {path}")
+    logger.debug(f"df_ena.columns={df_ena.columns}")
+    logger.debug(f"df_ena ={df_ena.head()}")
+
+    output_fields = ['ENA recommended', 'field description(current or prospective)', 'Needs New Term in ENA', 'AEGIS term']
+    out_file_path = path + "ENA_AEGIS_draft_checklists_high_confidence.md"
+    logger.debug(f"out_file_path={out_file_path}")
+    out_file = open(out_file_path, 'w')
+    df_hc = df_ena.loc[df_ena['Confidence to add'].map(lambda v: isinstance(v, str) and v.strip().lower().startswith("high"))]
+    df_hc = df_hc[output_fields]
+    df_hc.to_markdown(out_file, index=False)
+    logger.debug(f"df_hc={df_hc.head(10)}")
+    out_file.close()
+
+    out_file_path = path + "ENA_AEGIS_draft_checklists_all_confidences.md"
+    logger.debug(f"out_file_path={out_file_path}")
+    out_file = open(out_file_path, 'w')
+    df_lc = df_ena.loc[
+        df_ena['Confidence to add'].map(lambda v: isinstance(v, str) and not v.strip().startswith("?"))]
+
+    df_lc = df_lc[output_fields]
+    df_lc.to_markdown(out_file, index=False)
+    logger.debug(f"df_hc={df_lc.head(10)}")
+    out_file.close()
+
+
+
 def main():
     """CLI entry point.
 
@@ -377,7 +406,8 @@ def main():
     logger.info("Done.")
 
     # Call the comparison stub (does nothing if pandas is unavailable)
-    process(df_a, df_b)
+    write_draft_checklists(df_a, "../data/checkist/")
+    # process(df_a, df_b)
 
 
 if __name__ == "__main__":
