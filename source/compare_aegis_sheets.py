@@ -26,7 +26,7 @@ Notes:
     them manually or use an authenticated approach.
   - If pandas is installed, the script will load into DataFrames and print head();
     otherwise, it falls back to Python's csv module and prints rows.
-  - The helper functions are small and documented so pydoc can render useful help.
+  - The helper functions are small and documented, so pydoc can render useful help.
 """
 
 import math
@@ -37,6 +37,7 @@ import os
 import re
 import sys
 from urllib.parse import urlparse, parse_qs
+from get_ena_checklist_details import ENASchemaStoreClient
 
 try:
     import pandas as pd  # optional
@@ -46,7 +47,6 @@ except Exception:  # pragma: no cover
 import urllib.request
 
 logger = logging.getLogger("compare_aegis_sheets")
-
 
 
 def _extract_sheet_id_and_gid(url_or_id: str):
@@ -127,7 +127,7 @@ def _fetch_csv_bytes(sheet_id: str, gid) -> bytes:
 
 
 def _write_csv_bytes(path: str, content: bytes):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(os.path.dirname(path), exist_ok = True)
     with open(path, "wb") as f:
         f.write(content)
 
@@ -155,7 +155,7 @@ def _load_with_csv_module(csv_bytes: bytes):
       tuple[list[str], list[list[str]]]: (header, data_rows)
     """
     from io import StringIO
-    s = csv_bytes.decode("utf-8", errors="replace")
+    s = csv_bytes.decode("utf-8", errors = "replace")
     reader = csv.reader(StringIO(s))
     rows = list(reader)
     header = rows[0] if rows else []
@@ -170,9 +170,9 @@ def clean_ena_field_list(field_list):
     Non-string values (e.g., None, NaN, numbers) are converted to strings; NaN/None become ''.
     """
     ena_ena_field_set = set()
-    non_terms_pattern = re.compile(r"^\s*(\?|TBD|N\.A\.|N\.A\.\?|eh\?)\s*$", re.IGNORECASE)
+    non_terms_pattern = re.compile(r"^\s*(\?|TBD|N\.A\.|N\.A\.\?|eh\?|not_needed)\s*$", re.IGNORECASE)
     for item in field_list:
-        # Normalize to string; handle pandas NaN/None as empty string
+        # Normalise to string; handle pandas NaN/None as empty string
         try:
 
             is_nan = isinstance(item, float) and math.isnan(item)
@@ -185,12 +185,11 @@ def clean_ena_field_list(field_list):
         else:
             s = str(item)
         if '+' in s:
-            ena_ena_field_set.add(s.split('+')[0].strip())
+            ena_ena_field_set.add(s.split('+')[0].replace('"', '').strip())
         else:
             ena_ena_field_set.add(s.strip())
 
     return list(ena_ena_field_set)
-
 
 
 def _is_truthy(v):
@@ -213,6 +212,7 @@ def _is_truthy(v):
     s = str(v).strip().lower()
     return s in {"true", "t", "yes", "y", "1"}
 
+
 def process(df_ena, df_carl):
     """Placeholder for downstream comparison logic.
 
@@ -220,7 +220,7 @@ def process(df_ena, df_carl):
       df_carl: pandas.DataFrame or None
         DataFrame loaded from the AEGIS_plus_draft_checklist sheet, if pandas available.
       df_ena: pandas.DataFrame or None
-        DataFrame loaded from the AEGIS_ENA_upload sheet, if pandas available.
+        DataFrame loaded from the AEGIS_ENA_upload sheet, if pandas are available.
 
     Notes:
       Currently this function only logs basic shape information if DataFrames are provided.
@@ -231,10 +231,17 @@ def process(df_ena, df_carl):
     else:
         logger.info("process(): pandas not available or DataFrames not created; skipping comparison stub.")
 
-    mandatory_ena_fields = sorted(['tax_id', 'collection date', 'sample_alias', 'sample_description', 'sample_title', 'scientific_name', 'geographic location (country and/or sea)'])
-    logger.debug(f"mandatory_ena_fields={mandatory_ena_fields}")
+    ena_client = ENASchemaStoreClient()
+    all_ena_fields = ena_client.list_field_names()
 
-    sys.exit("DDDDDD")
+    logger.debug(f"mandatory_ena_fields={ena_client.mandatory_ena_fields}")
+    mandatory_ena_fields_set = set(ena_client.mandatory_ena_fields)
+    logger.debug(f"experiment_ena_fields_all={ena_client.experiment_ena_fields_all}")
+    experiment_ena_fields_all_set = set(ena_client.experiment_ena_fields_all)
+    experiment_ena_fields_mandatory_set = set(ena_client.experiment_ena_fields_mandatory)
+    logger.debug(f"experiment_ena_fields_mandatory={sorted(experiment_ena_fields_mandatory_set)}")
+
+    # sys.exit(0)
 
     logger.debug(f"df_carl.columns={df_carl.columns}")
     carl_ena_field_list = clean_ena_field_list(df_carl['ENA wish'].tolist())
@@ -253,20 +260,19 @@ def process(df_ena, df_carl):
     ena_ena_field_new_set = set(df_ena.loc[mask, 'ENA recommended'].tolist())
     logger.debug(f"ena_ena_field_new_set: {sorted(ena_ena_field_new_set)}")
 
-
     logger.debug(f"df_ena.columns={df_ena.columns}")
     ena_ena_field_list = clean_ena_field_list(df_ena['ENA recommended'].tolist())
     carl_ena_field_set = set(carl_ena_field_list)
     ena_ena_field_set = set(ena_ena_field_list)
 
-    #remove any
+    # remove any
     print(f"Carl's sheet total rows: {len(carl_ena_field_set)}")
     print(f"ENA's sheet total rows: {len(ena_ena_field_set)}")
 
     logger.debug(f"carl_ena_field_set: {sorted(carl_ena_field_set)}")
     tmp_news_terms = sorted(ena_ena_field_set.intersection(carl_ena_field_set))
     logger.info(f"{len(tmp_news_terms)} common fields: {tmp_news_terms}")
-    #any designated new ENA terms on this?
+    # any designated new ENA terms on this?
     tmp_news_terms = sorted(carl_ena_field_set.intersection(ena_ena_field_new_set))
     logger.info(f"{len(tmp_news_terms)} new ENA terms on Carl's: {tmp_news_terms}")
     carl_diff_terms = sorted(carl_ena_field_set.difference(ena_ena_field_set))
@@ -277,9 +283,15 @@ def process(df_ena, df_carl):
 
     print("\n")
     print(f"differences:")
-    logger.info(f"carl_ena_field_set - ena_ena_field_set: {sorted(carl_ena_field_set - ena_ena_field_set)}")
-    logger.info(f"ena_ena_field_set - carl_ena_field_set: {sorted(ena_ena_field_set - carl_ena_field_set)}")
+    tmp_diffs = set(sorted(carl_ena_field_set - ena_ena_field_set))
+    logger.info(f"carl_ena_field_set - ena_ena_field_set total={len(tmp_diffs)}: {tmp_diffs}")
+    logger.info(f"   and after removing the sequence_experiment terms total={len(tmp_diffs - experiment_ena_fields_all_set)}: {tmp_diffs - experiment_ena_fields_all_set}:")
+    tmp_diffs = set(sorted(ena_ena_field_set - carl_ena_field_set))
+    logger.info(f"ena_ena_field_set - carl_ena_field_set total={len(tmp_diffs)}: {tmp_diffs}")
+    print("\n")
 
+
+    logger.info(f"{len(mandatory_ena_fields_set) - len(mandatory_ena_fields_set - ena_ena_field_set)}/{len(mandatory_ena_fields_set)} mandatory fields in ENA, remaining: {sorted(mandatory_ena_fields_set - ena_ena_field_set)}")
 
 
 def main():
@@ -289,18 +301,22 @@ def main():
     preview. If pandas is available, loads each sheet into a DataFrame and prints
     DataFrame.head(); otherwise uses Python's csv module and prints rows.
     """
-    parser = argparse.ArgumentParser(description="Read two Google Sheets and preview them")
+
+
+
+    parser = argparse.ArgumentParser(description = "Read two Google Sheets and preview them")
     parser.add_argument(
         "--sheet-a",
-        default="https://docs.google.com/spreadsheets/d/1EWNjbSQYVs-mnsysTYpWs-l1QoiE4nbPTQyXmCWli5Y/edit?gid=143021854",
-        help="URL or ID of first Google Sheet (AEGIS_plus_draft_checklist)",
+        default = "https://docs.google.com/spreadsheets/d/1EWNjbSQYVs-mnsysTYpWs-l1QoiE4nbPTQyXmCWli5Y/edit?gid"
+                  "=143021854",
+        help = "URL or ID of first Google Sheet (AEGIS_plus_draft_checklist)",
     )
     parser.add_argument(
         "--sheet-b",
-        default="https://docs.google.com/spreadsheets/d/1C9Zzsa_27GjdIirOL3IwBBV9FvWudJXpfNP8PfYuWKM/edit?gid=0",
-        help="URL or ID of second Google Sheet (AEGIS_ENA_upload)",
+        default = "https://docs.google.com/spreadsheets/d/1C9Zzsa_27GjdIirOL3IwBBV9FvWudJXpfNP8PfYuWKM/edit?gid=0",
+        help = "URL or ID of second Google Sheet (AEGIS_ENA_upload)",
     )
-    parser.add_argument("--print-head", type=int, default=5, help="Print first N rows for a quick preview")
+    parser.add_argument("--print-head", type = int, default = 5, help = "Print first N rows for a quick preview")
     args = parser.parse_args()
 
     # Validate and parse sheet identifiers
@@ -354,6 +370,7 @@ def main():
                     print("\t".join(header))
                 for row in data[:ph]:
                     print("\t".join(row))
+
             print_preview(header_a, data_a, "Sheet A")
             print_preview(header_b, data_b, "Sheet B")
 
