@@ -406,7 +406,7 @@ def main():
     logger.info("Done.")
 
     # Call the comparison stub (does nothing if pandas is unavailable)
-    write_draft_checklists(df_a, "../data/checkist/")
+    write_draft_checklists(df_a, "../data/checklist/")
     # process(df_a, df_b)
 
 
