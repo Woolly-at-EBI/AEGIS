@@ -1,3 +1,4 @@
+```mermaid
 flowchart TD
     A[MInAs] -->mapping(initial mapping)
     AEGIS --> mapping
@@ -6,3 +7,4 @@ flowchart TD
     mapping --> mapping_imp(improved mapping)
     AEGIS_IMP(AEGIS term details)--> mapping_imp
     mapping_imp -- "  "--> prot_checklist(prototype aDNA checklist)
+```
