@@ -49,6 +49,22 @@ import urllib.request
 logger = logging.getLogger("compare_aegis_sheets")
 
 
+def credits():
+    credit_str = ("This work is the combined effort of many people including: " +
+                  "AEGIS(Carl Boden), MINAS(James Fellows Yates) and " +
+                  "ENA(Joana Pauperio, Peter Woollard)")
+    return credit_str
+
+def ena_checklist_programmatic_details():
+    """Placeholder for ENA checklist details."""
+    my_str = ("## ena_checklist_programmatic_details - currently just in test\n" +
+              "curl -s 'https://wwwdev.ebi.ac.uk/biosamples/schema-store/registry/schemas/ERC000060'  | jq" +
+              "\n### and for the terms\n" +
+              "curl -s 'https://wwwdev.ebi.ac.uk/biosamples/schema-store/registry/schemas/ERC000060'  | jq" +
+              "| jq -r '.properties.characteristics.properties | to_entries[]' | jq 'select(.key==\"sample age range oldest limit\")'\n"
+              )
+    return my_str
+
 def _extract_sheet_id_and_gid(url_or_id: str):
     """Extract identifiers from a Google Sheets URL or ID.
 
@@ -232,7 +248,7 @@ def process(df_ena, df_carl):
         logger.info("process(): pandas not available or DataFrames not created; skipping comparison stub.")
 
     ena_client = ENASchemaStoreClient()
-    all_ena_fields = ena_client.list_field_names()
+    # all_ena_fields = ena_client.list_field_names()
 
     logger.debug(f"mandatory_ena_fields={ena_client.mandatory_ena_fields}")
     mandatory_ena_fields_set = set(ena_client.mandatory_ena_fields)
@@ -285,43 +301,124 @@ def process(df_ena, df_carl):
     print(f"differences:")
     tmp_diffs = set(sorted(carl_ena_field_set - ena_ena_field_set))
     logger.info(f"carl_ena_field_set - ena_ena_field_set total={len(tmp_diffs)}: {tmp_diffs}")
-    logger.info(f"   and after removing the sequence_experiment terms total={len(tmp_diffs - experiment_ena_fields_all_set)}: {tmp_diffs - experiment_ena_fields_all_set}:")
+    logger.info(f"   and after removing the sequence_experiment terms total=")
+    logger.info(f"{len(tmp_diffs - experiment_ena_fields_all_set)}:")
+    logger.info(f"{tmp_diffs - experiment_ena_fields_all_set}:")
     tmp_diffs = set(sorted(ena_ena_field_set - carl_ena_field_set))
     logger.info(f"ena_ena_field_set - carl_ena_field_set total={len(tmp_diffs)}: {tmp_diffs}")
     print("\n")
 
+    logger.info(f"{len(mandatory_ena_fields_set) - len(mandatory_ena_fields_set - ena_ena_field_set)}/{len(mandatory_ena_fields_set)} ")
+    logger.info(f"mandatory fields in ENA, remaining: {sorted(mandatory_ena_fields_set - ena_ena_field_set)}")
 
-    logger.info(f"{len(mandatory_ena_fields_set) - len(mandatory_ena_fields_set - ena_ena_field_set)}/{len(mandatory_ena_fields_set)} mandatory fields in ENA, remaining: {sorted(mandatory_ena_fields_set - ena_ena_field_set)}")
 
+
+def write_df_to_md(df_sample_hc, out_file_path, output_fields):
+    """
+
+    :param df_sample_hc:
+    :param out_file_path:
+    :param output_fields:
+    :return:
+    """
+    with open(out_file_path, 'w') as out_file:
+        try:
+            df_sample_hc.to_markdown(out_file, index = False)
+        except Exception:
+            # Fallback to TSV if markdown export is unavailable
+            out_file.write("\t".join(output_fields) + "\n")
+            for _, row in df_sample_hc.iterrows():
+                out_file.write("\t".join(str(row[c]) if c in row else "" for c in output_fields) + "\n")
+    logger.debug(f"df_sample_hc head=\n{df_sample_hc.head(10)}")
 
 def write_draft_checklists(df_ena, path):
-    """Write the draft checklist to a CSV file."""
+    """Write the draft checklist files for ENA/AEGIS mapping.
+
+    This function expects the ENA upload sheet with columns like
+    'Confidence to add', 'Metadata Category', 'ENA recommended', etc.
+    It builds two outputs:
+      - ENA_AEGIS_draft_checklists.tsv (high confidence, sample category)
+      - ENA_AEGIS_draft_checklists_all_confidences.md (all non-questionable)
+    """
+    if pd is None or df_ena is None:
+        logger.warning("write_draft_checklists(): pandas not available or DataFrame is None; skipping output.")
+        return
+
+    required_cols = [
+        'Confidence to add',
+        'Metadata Category',
+        'ENA recommended',
+        'field description(current or prospective)',
+        'Needs New Term in ENA',
+        'AEGIS term',
+    ]
+
+    logger.debug(f"df_ena.columns={list(df_ena.columns)}")
+
+    missing = [c for c in required_cols if c not in df_ena.columns]
+    if missing:
+        logger.warning(f"write_draft_checklists(): missing required columns: {missing}; skipping output.")
+        return
+
     logger.info(f"write_draft_checklists(): writing draft checklist to {path}")
-    logger.debug(f"df_ena.columns={df_ena.columns}")
-    logger.debug(f"df_ena ={df_ena.head()}")
+    try:
+        logger.debug(f"df_ena.columns={list(df_ena.columns)}")
+        logger.debug(f"df_ena head=\n{df_ena.head()}")
+    except Exception:
+        pass
 
-    output_fields = ['ENA recommended', 'field description(current or prospective)', 'Needs New Term in ENA', 'AEGIS term']
-    out_file_path = path + "ENA_AEGIS_draft_checklists_high_confidence.md"
+    output_fields = ['ENA recommended', 'field description(current or prospective)', 'Needs New Term in ENA',
+                     'AEGIS term', 'Control']
+
+    # ensure target directory exists
+    os.makedirs(path, exist_ok=True)
+
+    readme_file_path = os.path.join(path, "readme_auto.md")
+    markdown_file_dict = { "hc_md": "ENA_AEGIS_draft_checklists_high_confidence.md", "all_md": "ENA_AEGIS_draft_checklists_all_confidences.md" }
+
+    # High confidence, sample category TSV
+    out_file_path = os.path.join(path, markdown_file_dict['hc_md'])
     logger.debug(f"out_file_path={out_file_path}")
-    out_file = open(out_file_path, 'w')
-    df_hc = df_ena.loc[df_ena['Confidence to add'].map(lambda v: isinstance(v, str) and v.strip().lower().startswith("high"))]
-    df_hc = df_hc[output_fields]
-    df_hc.to_markdown(out_file, index=False)
-    logger.debug(f"df_hc={df_hc.head(10)}")
-    out_file.close()
 
-    out_file_path = path + "ENA_AEGIS_draft_checklists_all_confidences.md"
+    # Build masks robustly (handle NaN/non-strings)
+    conf = df_ena['Confidence to add'].astype(str).str.strip().str.lower()
+    cat = df_ena['Metadata Category'].astype(str).str.strip().str.lower()
+    mask_hc = conf.str.startswith('high', na=False)
+    mask_sample = (cat == 'sample')
+
+    df_sample_hc = df_ena.loc[mask_hc & mask_sample, output_fields]
+    write_df_to_md(df_sample_hc, out_file_path, output_fields)
+
+    # all other confidences, sample category
+    out_file_path = os.path.join(path,markdown_file_dict['all_md'])
     logger.debug(f"out_file_path={out_file_path}")
-    out_file = open(out_file_path, 'w')
-    df_lc = df_ena.loc[
-        df_ena['Confidence to add'].map(lambda v: isinstance(v, str) and not v.strip().startswith("?"))]
+    mask_ac = ~conf.str.startswith('?', na=False)
+    df_sample_ac = df_ena.loc[mask_ac, output_fields]
+    # write all non-questionable confidences
+    write_df_to_md(df_sample_ac, out_file_path, output_fields)
 
-    df_lc = df_lc[output_fields]
-    df_lc.to_markdown(out_file, index=False)
-    logger.debug(f"df_hc={df_lc.head(10)}")
-    out_file.close()
+    # Generate a simple README with ENA terms that need adding
+    mask = df_ena['Needs New Term in ENA'].map(_is_truthy)
+    df_tmp = df_ena.loc[mask]
+    logger.info(f"df_tmp.head=\n{df_tmp.head(10)}")
+    ena_new_terms_list = sorted(df_tmp['ENA recommended'].dropna().astype(str).tolist())
 
+    logger.info(f"list of ENA terms to add: {ena_new_terms_list}")
+    with open(readme_file_path, "w", encoding="utf-8") as readme_out:
+        readme_out.write("# Ancient DNA/AEGIS checklist\n")
+        readme_out.write(f"{credits()}\n\n")
+        readme_out.write("## Files related to creating an ancient DNA/AEGIS checklist\n\n")
+        for md_file in markdown_file_dict.values():
+            readme_out.write(f"- {md_file}\n")
 
+        readme_out.write("\n## ENA terms proposed for addition - currently all these terms are in test\n\n")
+        for ena_term in ena_new_terms_list:
+            readme_out.write(f"- {ena_term}\n")
+
+        readme_out.write(ena_checklist_programmatic_details())
+    # no forced exit; continue normally
+
+    return
 
 def main():
     """CLI entry point.
@@ -330,8 +427,6 @@ def main():
     preview. If pandas is available, loads each sheet into a DataFrame and prints
     DataFrame.head(); otherwise uses Python's csv module and prints rows.
     """
-
-
 
     parser = argparse.ArgumentParser(description = "Read two Google Sheets and preview them")
     parser.add_argument(
@@ -405,8 +500,11 @@ def main():
 
     logger.info("Done.")
 
-    # Call the comparison stub (does nothing if pandas is unavailable)
-    write_draft_checklists(df_a, "../data/checklist/")
+    # Generate draft checklists only if pandas loaded and ENA sheet is present
+    if pd_flag and df_a is not None:
+        write_draft_checklists(df_a, os.path.join(os.path.dirname(__file__), "../data/checklist/"))
+    else:
+        logger.info("Skipping draft checklist generation (pandas unavailable or ENA sheet not loaded).")
     # process(df_a, df_b)
 
 
